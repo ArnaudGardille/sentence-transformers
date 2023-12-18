@@ -1,3 +1,4 @@
+import functools
 import requests
 from torch import Tensor, device
 from typing import List, Callable
@@ -12,25 +13,27 @@ import logging
 from typing import Dict, Optional, Union
 from pathlib import Path
 
-import huggingface_hub
 from huggingface_hub.constants import HUGGINGFACE_HUB_CACHE
-from huggingface_hub import HfApi, hf_hub_url, cached_download, HfFolder
+from huggingface_hub import snapshot_download, hf_hub_download
+from huggingface_hub.utils import EntryNotFoundError
 import fnmatch
 from packaging import version
 import heapq
 
 logger = logging.getLogger(__name__)
 
-def pytorch_cos_sim(a: Tensor, b: Tensor):
+def pytorch_cos_sim(a: Tensor, b: Tensor) -> Tensor:
     """
     Computes the cosine similarity cos_sim(a[i], b[j]) for all i and j.
+
     :return: Matrix with res[i][j]  = cos_sim(a[i], b[j])
     """
     return cos_sim(a, b)
 
-def cos_sim(a: Tensor, b: Tensor):
+def cos_sim(a: Tensor, b: Tensor) -> Tensor:
     """
     Computes the cosine similarity cos_sim(a[i], b[j]) for all i and j.
+
     :return: Matrix with res[i][j]  = cos_sim(a[i], b[j])
     """
     if not isinstance(a, torch.Tensor):
@@ -50,9 +53,10 @@ def cos_sim(a: Tensor, b: Tensor):
     return torch.mm(a_norm, b_norm.transpose(0, 1))
 
 
-def dot_score(a: Tensor, b: Tensor):
+def dot_score(a: Tensor, b: Tensor) -> Tensor:
     """
     Computes the dot-product dot_prod(a[i], b[j]) for all i and j.
+
     :return: Matrix with res[i][j]  = dot_prod(a[i], b[j])
     """
     if not isinstance(a, torch.Tensor):
@@ -70,9 +74,10 @@ def dot_score(a: Tensor, b: Tensor):
     return torch.mm(a, b.transpose(0, 1))
 
 
-def pairwise_dot_score(a: Tensor, b: Tensor):
+def pairwise_dot_score(a: Tensor, b: Tensor) -> Tensor:
     """
    Computes the pairwise dot-product dot_prod(a[i], b[i])
+
    :return: Vector with res[i] = dot_prod(a[i], b[i])
    """
     if not isinstance(a, torch.Tensor):
@@ -84,9 +89,10 @@ def pairwise_dot_score(a: Tensor, b: Tensor):
     return (a * b).sum(dim=-1)
 
 
-def pairwise_cos_sim(a: Tensor, b: Tensor):
+def pairwise_cos_sim(a: Tensor, b: Tensor) -> Tensor:
     """
    Computes the pairwise cossim cos_sim(a[i], b[i])
+
    :return: Vector with res[i] = cos_sim(a[i], b[i])
    """
     if not isinstance(a, torch.Tensor):
@@ -98,7 +104,7 @@ def pairwise_cos_sim(a: Tensor, b: Tensor):
     return pairwise_dot_score(normalize_embeddings(a), normalize_embeddings(b))
 
 
-def normalize_embeddings(embeddings: Tensor):
+def normalize_embeddings(embeddings: Tensor) -> Tensor:
     """
     Normalizes the embeddings matrix, so that each sentence embedding has unit length
     """
@@ -110,7 +116,7 @@ def paraphrase_mining(model,
                       show_progress_bar: bool = False,
                       batch_size:int = 32,
                       *args,
-                      **kwargs):
+                      **kwargs) -> List[List[Union[float, int]]]:
     """
     Given a list of sentences / texts, this function performs paraphrase mining. It compares all sentences against all
     other sentences and returns a list with the pairs that have the highest cosine similarity score.
@@ -138,7 +144,7 @@ def paraphrase_mining_embeddings(embeddings: Tensor,
                       corpus_chunk_size: int = 100000,
                       max_pairs: int = 500000,
                       top_k: int = 100,
-                      score_function: Callable[[Tensor, Tensor], Tensor] = cos_sim):
+                      score_function: Callable[[Tensor, Tensor], Tensor] = cos_sim) -> List[List[Union[float, int]]]:
     """
     Given a list of sentences / texts, this function performs paraphrase mining. It compares all sentences against all
     other sentences and returns a list with the pairs that have the highest cosine similarity score.
@@ -189,14 +195,14 @@ def paraphrase_mining_embeddings(embeddings: Tensor,
 
         if sorted_i != sorted_j and (sorted_i, sorted_j) not in added_pairs:
             added_pairs.add((sorted_i, sorted_j))
-            pairs_list.append([score, i, j])
+            pairs_list.append([score, sorted_i, sorted_j])
 
     # Highest scores first
     pairs_list = sorted(pairs_list, key=lambda x: x[0], reverse=True)
     return pairs_list
 
 
-def information_retrieval(*args, **kwargs):
+def information_retrieval(*args, **kwargs) -> List[List[Dict[str, Union[int, float]]]]:
     """This function is deprecated. Use semantic_search instead"""
     return semantic_search(*args, **kwargs)
 
@@ -206,7 +212,7 @@ def semantic_search(query_embeddings: Tensor,
                     query_chunk_size: int = 100,
                     corpus_chunk_size: int = 500000,
                     top_k: int = 10,
-                    score_function: Callable[[Tensor, Tensor], Tensor] = cos_sim):
+                    score_function: Callable[[Tensor, Tensor], Tensor] = cos_sim) -> List[List[Dict[str, Union[int, float]]]]:
     """
     This function performs a cosine similarity search between a list of query embeddings  and a list of corpus embeddings.
     It can be used for Information Retrieval / Semantic Search for corpora up to about 1 Million entries.
@@ -270,7 +276,7 @@ def semantic_search(query_embeddings: Tensor,
     return queries_result_list
 
 
-def http_get(url, path):
+def http_get(url, path) -> None:
     """
     Downloads a URL to a given path on disc
     """
@@ -308,7 +314,7 @@ def batch_to_device(batch, target_device: device):
 
 
 
-def fullname(o):
+def fullname(o) -> str:
   """
   Gives a full name (package_name.class_name) for a class / object in Python. Will
   be used to load the correct classes from JSON files
@@ -343,7 +349,7 @@ def import_from_string(dotted_path):
         raise ImportError(msg)
 
 
-def community_detection(embeddings, threshold=0.75, min_community_size=10, batch_size=1024):
+def community_detection(embeddings, threshold=0.75, min_community_size=10, batch_size=1024, show_progress_bar=False) -> List[List[int]]:
     """
     Function for Fast Community Detection
     Finds in the embeddings all communities, i.e. embeddings that are close (closer than threshold).
@@ -354,6 +360,7 @@ def community_detection(embeddings, threshold=0.75, min_community_size=10, batch
         embeddings = torch.tensor(embeddings)
 
     threshold = torch.tensor(threshold, device=embeddings.device)
+    embeddings = normalize_embeddings(embeddings)
 
     extracted_communities = []
 
@@ -361,35 +368,47 @@ def community_detection(embeddings, threshold=0.75, min_community_size=10, batch
     min_community_size = min(min_community_size, len(embeddings))
     sort_max_size = min(max(2 * min_community_size, 50), len(embeddings))
 
-    for start_idx in range(0, len(embeddings), batch_size):
+    for start_idx in tqdm(range(0, len(embeddings), batch_size), desc="Finding clusters", disable=not show_progress_bar):
         # Compute cosine similarity scores
-        cos_scores = cos_sim(embeddings[start_idx:start_idx + batch_size], embeddings)
+        cos_scores = embeddings[start_idx:start_idx + batch_size] @ embeddings.T
 
-        # Minimum size for a community
-        top_k_values, _ = cos_scores.topk(k=min_community_size, largest=True)
+        # Use a torch-heavy approach if the embeddings are on CUDA, otherwise a loop-heavy one
+        if embeddings.device.type == "cuda":
+            # Threshold the cos scores and determine how many close embeddings exist per embedding
+            threshold_mask = cos_scores >= threshold
+            row_wise_count = threshold_mask.sum(1)
 
-        # Filter for rows >= min_threshold
-        for i in range(len(top_k_values)):
-            if top_k_values[i][-1] >= threshold:
-                new_cluster = []
+            # Only consider embeddings with enough close other embeddings
+            large_enough_mask = row_wise_count >= min_community_size
+            if not large_enough_mask.any():
+                continue
 
-                # Only check top k most similar entries
-                top_val_large, top_idx_large = cos_scores[i].topk(k=sort_max_size, largest=True)
+            row_wise_count = row_wise_count[large_enough_mask]
+            cos_scores = cos_scores[large_enough_mask]
 
-                # Check if we need to increase sort_max_size
-                while top_val_large[-1] > threshold and sort_max_size < len(embeddings):
-                    sort_max_size = min(2 * sort_max_size, len(embeddings))
+            # The max is the largest potential community, so we use that in topk
+            k = row_wise_count.max()
+            _, top_k_indices = cos_scores.topk(k=k, largest=True)
+
+            # Use the row-wise count to slice the indices
+            for count, indices in zip(row_wise_count, top_k_indices):
+                extracted_communities.append(indices[:count].tolist())
+        else:
+            # Minimum size for a community
+            top_k_values, _ = cos_scores.topk(k=min_community_size, largest=True)
+
+            # Filter for rows >= min_threshold
+            for i in range(len(top_k_values)):
+                if top_k_values[i][-1] >= threshold:
+                    # Only check top k most similar entries
                     top_val_large, top_idx_large = cos_scores[i].topk(k=sort_max_size, largest=True)
 
-                for idx, val in zip(top_idx_large.tolist(), top_val_large):
-                    if val < threshold:
-                        break
+                    # Check if we need to increase sort_max_size
+                    while top_val_large[-1] > threshold and sort_max_size < len(embeddings):
+                        sort_max_size = min(2 * sort_max_size, len(embeddings))
+                        top_val_large, top_idx_large = cos_scores[i].topk(k=sort_max_size, largest=True)
 
-                    new_cluster.append(idx)
-
-                extracted_communities.append(new_cluster)
-
-        del cos_scores
+                    extracted_communities.append(top_idx_large[top_val_large >= threshold].tolist())
 
     # Largest cluster first
     extracted_communities = sorted(extracted_communities, key=lambda x: len(x), reverse=True)
@@ -399,7 +418,6 @@ def community_detection(embeddings, threshold=0.75, min_community_size=10, batch
     extracted_ids = set()
 
     for cluster_id, community in enumerate(extracted_communities):
-        community = sorted(community)
         non_overlapped_community = []
         for idx in community:
             if idx not in extracted_ids:
@@ -419,86 +437,81 @@ def community_detection(embeddings, threshold=0.75, min_community_size=10, batch
 ######################
 
 
-
-def snapshot_download(
-    repo_id: str,
-    revision: Optional[str] = None,
-    cache_dir: Union[str, Path, None] = None,
-    library_name: Optional[str] = None,
-    library_version: Optional[str] = None,
-    user_agent: Union[Dict, str, None] = None,
-    ignore_files: Optional[List[str]] = None,
-    use_auth_token: Union[bool, str, None] = None
-) -> str:
+class disabled_tqdm(tqdm):
     """
-    Method derived from huggingface_hub.
-    Adds a new parameters 'ignore_files', which allows to ignore certain files / file-patterns
-    """
-    if cache_dir is None:
-        cache_dir = HUGGINGFACE_HUB_CACHE
-    if isinstance(cache_dir, Path):
-        cache_dir = str(cache_dir)
+    Class to override `disable` argument in case progress bars are globally disabled.
 
-    _api = HfApi()
-    
-    token = None 
-    if isinstance(use_auth_token, str):
-        token = use_auth_token
-    elif use_auth_token:
-        token = HfFolder.get_token()
+    Taken from https://github.com/tqdm/tqdm/issues/619#issuecomment-619639324.
+    """
+
+    def __init__(self, *args, **kwargs):
+        kwargs["disable"] = True
+        super().__init__(*args, **kwargs)
+
+    def __delattr__(self, attr: str) -> None:
+        """Fix for https://github.com/huggingface/huggingface_hub/issues/1603"""
+        try:
+            super().__delattr__(attr)
+        except AttributeError:
+            if attr != "_lock":
+                raise
+
+
+def is_sentence_transformer_model(model_name_or_path: str, token: Optional[Union[bool, str]] = None, cache_folder: Optional[str] = None) -> bool:
+    return bool(load_file_path(model_name_or_path, "modules.json", token, cache_folder))
+
+
+def load_file_path(model_name_or_path: str, filename: str, token: Optional[Union[bool, str]], cache_folder: Optional[str]) -> Optional[str]:
+    # If file is local
+    file_path = os.path.join(model_name_or_path, filename)
+    if os.path.exists(file_path):
+        return file_path
+
+    # If file is remote
+    try:
+        return hf_hub_download(model_name_or_path, filename=filename, library_name="sentence-transformers", token=token, cache_dir=cache_folder)
+    except Exception:
+        return
+
+
+def load_dir_path(model_name_or_path: str, directory: str, token: Optional[Union[bool, str]], cache_folder: Optional[str]) -> Optional[str]:
+    # If file is local
+    dir_path = os.path.join(model_name_or_path, directory)
+    if os.path.exists(dir_path):
+        return dir_path
+
+    download_kwargs = {
+        "repo_id": model_name_or_path,
+        "allow_patterns":f"{directory}/**",
+        "library_name": "sentence-transformers",
+        "token": token,
+        "cache_dir": cache_folder,
+        "tqdm_class": disabled_tqdm,
+    }
+    # Try to download from the remote
+    try:
+        repo_path = snapshot_download(**download_kwargs)
+    except Exception:
+        # Otherwise, try local (i.e. cache) only
+        download_kwargs["local_files_only"] = True
+        repo_path = snapshot_download(**download_kwargs)
+    return os.path.join(repo_path, directory)
+
+
+def save_to_hub_args_decorator(func):
+    @functools.wraps(func)
+    def wrapper(self, *args, **kwargs):
+        # If repo_id not already set, use repo_name
+        repo_name = kwargs.pop("repo_name", None)
+        if repo_name and "repo_id" not in kwargs:
+            logger.warning(
+                "Providing a `repo_name` keyword argument to `save_to_hub` is deprecated, please use `repo_id` instead."
+            )
+            kwargs["repo_id"] = repo_name
+
+        # If positional args are used, adjust for the new "token" keyword argument
+        if len(args) >= 2:
+            args = (*args[:2], None, *args[2:])
         
-    model_info = _api.model_info(repo_id=repo_id, revision=revision, token=token)
-
-    storage_folder = os.path.join(
-        cache_dir, repo_id.replace("/", "_")
-    )
-
-    all_files = model_info.siblings
-    #Download modules.json as the last file
-    for idx, repofile in enumerate(all_files):
-        if repofile.rfilename == "modules.json":
-            del all_files[idx]
-            all_files.append(repofile)
-            break
-
-    for model_file in all_files:
-        if ignore_files is not None:
-            skip_download = False
-            for pattern in ignore_files:
-                if fnmatch.fnmatch(model_file.rfilename, pattern):
-                    skip_download = True
-                    break
-
-            if skip_download:
-                continue
-
-        url = hf_hub_url(
-            repo_id, filename=model_file.rfilename, revision=model_info.sha
-        )
-        relative_filepath = os.path.join(*model_file.rfilename.split("/"))
-
-        # Create potential nested dir
-        nested_dirname = os.path.dirname(
-            os.path.join(storage_folder, relative_filepath)
-        )
-        os.makedirs(nested_dirname, exist_ok=True)
-
-        cached_download_args = {'url': url,
-            'cache_dir': storage_folder,
-            'force_filename': relative_filepath,
-            'library_name': library_name,
-            'library_version': library_version,
-            'user_agent': user_agent,
-            'use_auth_token': use_auth_token}
-
-        if version.parse(huggingface_hub.__version__) >= version.parse("0.8.1"):
-            # huggingface_hub v0.8.1 introduces a new cache layout. We sill use a manual layout
-            # And need to pass legacy_cache_layout=True to avoid that a warning will be printed
-            cached_download_args['legacy_cache_layout'] = True
-
-        path = cached_download(**cached_download_args)
-
-        if os.path.exists(path + ".lock"):
-            os.remove(path + ".lock")
-
-    return storage_folder
+        return func(self, *args, **kwargs)
+    return wrapper
